@@ -126,7 +126,9 @@
                 
                 if (imageData.length === 0) {
                     status('No images in this area');
-                    updateMapPoints([]);
+                    if (map.getSource('images')) {
+                        updateMapPoints([]);
+                    }
                     return;
                 }
                 
@@ -165,6 +167,16 @@
                     }
                 }));
 
+            // Check if source exists, update if it does, create if it doesn't
+            if (map.getSource('images')) {
+                map.getSource('images').setData({
+                    type: 'FeatureCollection',
+                    features: features
+                });
+                return;
+            }
+
+            // First time - create the source and layers
             map.addSource('images', {
                 type: 'geojson',
                 data: {
