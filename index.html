@@ -292,15 +292,21 @@
                         });
                     }
                     
+                    // Update position markers immediately
+                    positionMarker.setLngLat(coords).addTo(map);
+                    cameraMarker.setLngLat(coords).addTo(map);
+                    
                     // Center map on selected point
                     map.panTo(coords);
                     
                     try {
                         await viewer.moveTo(String(imageId));
+                        // Force a position sync after the image loads
+                        setTimeout(syncPosition, 100);
                     } catch (err) {
                         console.error('Error moving to image:', err);
                     }
-                    setTimeout(() => { isUpdatingFromMap = false; }, 200);
+                    setTimeout(() => { isUpdatingFromMap = false; }, 300);
                 }
             });
 
@@ -378,9 +384,11 @@
                 const pos = await viewer.getPosition();
                 const pov = await viewer.getPointOfView();
                 
+                // Update position markers
                 positionMarker.setLngLat([pos.lng, pos.lat]).addTo(map);
                 cameraMarker.setLngLat([pos.lng, pos.lat]).addTo(map);
                 
+                // Update FOV rotation
                 const svg = cameraEl.querySelector('svg');
                 if (svg) {
                     svg.style.transform = `rotateZ(${pov.bearing}deg)`;
@@ -400,7 +408,11 @@
                     });
                 }
                 
-                map.panTo([pos.lng, pos.lat]);
+                // Only pan if we're not already updating from a map click
+                if (!isUpdatingFromMap) {
+                    map.panTo([pos.lng, pos.lat]);
+                }
+                
                 setTimeout(() => { isUpdatingFromViewer = false; }, 200);
             } catch (err) {
                 console.error('Error syncing position:', err);
