@@ -213,9 +213,46 @@
                     },
                     properties: {
                         id: img.id,
-                        compass_angle: img.compass_angle || 0
+                        compass_angle: img.compass_angle || 0,
+                        sequence: img.sequence || null
                     }
                 }));
+
+            // Group images by sequence to create lines
+            const sequenceGroups = {};
+            imageData.forEach(img => {
+                if (img.sequence && img.geometry && img.geometry.coordinates) {
+                    if (!sequenceGroups[img.sequence]) {
+                        sequenceGroups[img.sequence] = [];
+                    }
+                    sequenceGroups[img.sequence].push({
+                        coords: img.geometry.coordinates,
+                        captured_at: img.captured_at
+                    });
+                }
+            });
+
+            // Create line features from sequences
+            const lineFeatures = Object.entries(sequenceGroups).map(([seqId, points]) => {
+                // Sort by capture time if available
+                points.sort((a, b) => {
+                    if (a.captured_at && b.captured_at) {
+                        return new Date(a.captured_at) - new Date(b.captured_at);
+                    }
+                    return 0;
+                });
+                
+                return {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: points.map(p => p.coords)
+                    },
+                    properties: {
+                        sequence: seqId
+                    }
+                };
+            });
 
             // Check if source exists, update if it does, create if it doesn't
             if (map.getSource('images')) {
@@ -223,10 +260,37 @@
                     type: 'FeatureCollection',
                     features: features
                 });
+                
+                if (map.getSource('sequences')) {
+                    map.getSource('sequences').setData({
+                        type: 'FeatureCollection',
+                        features: lineFeatures
+                    });
+                }
                 return;
             }
 
-            // First time - create the source and layers
+            // First time - create the sequences source and layer
+            map.addSource('sequences', {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: lineFeatures
+                }
+            });
+
+            map.addLayer({
+                id: 'sequence-lines',
+                type: 'line',
+                source: 'sequences',
+                paint: {
+                    'line-color': '#4285F4',
+                    'line-width': 2,
+                    'line-opacity': 0.6
+                }
+            });
+
+            // Create images source and layers
             map.addSource('images', {
                 type: 'geojson',
                 data: {
@@ -235,7 +299,7 @@
                 }
             });
 
-            // Add image points layer
+            // Add image points layer (above lines)
             map.addLayer({
                 id: 'image-points',
                 type: 'circle',
