@@ -122,13 +122,13 @@
                 
                 // Find image data
                 const imgData = imageData.find(img => img.id === imageId);
-                if (!imgData || !imgData.computed_geometry) {
+                if (!imgData || !imgData.geometry) {
                     isUpdatingFromViewer = false;
                     return;
                 }
 
-                const [lng, lat] = imgData.computed_geometry.coordinates;
-                const bearing = imgData.computed_compass_angle || 0;
+                const [lng, lat] = imgData.geometry.coordinates;
+                const bearing = imgData.compass_angle || 0;
 
                 // Update current marker style
                 if (currentMarker) {
@@ -180,11 +180,22 @@
         // Fetch images from Mapillary API
         async function fetchUserImages() {
             try {
-                const response = await fetch(
-                    `https://graph.mapillary.com/images?access_token=${accessToken}&fields=id,computed_geometry,computed_compass_angle,captured_at&creator_username=${username}&limit=2000`
-                );
+                console.log('Fetching images for user:', username);
+                const url = `https://graph.mapillary.com/images?access_token=${accessToken}&fields=id,geometry,compass_angle,captured_at&creator_username=${username}&limit=2000`;
+                console.log('Fetching from:', url);
+                
+                const response = await fetch(url);
+                console.log('Response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
                 const data = await response.json();
+                console.log('API Response:', data);
+                
                 imageData = data.data || [];
+                console.log('Number of images found:', imageData.length);
                 
                 if (imageData.length === 0) {
                     document.getElementById('loading').textContent = 'No images found for user ' + username;
@@ -195,15 +206,16 @@
                 const startImg = imageData.find(img => img.id === startImageId);
                 let startLat = 0, startLng = 0;
                 
-                if (startImg && startImg.computed_geometry) {
-                    [startLng, startLat] = startImg.computed_geometry.coordinates;
+                if (startImg && startImg.geometry) {
+                    [startLng, startLat] = startImg.geometry.coordinates;
                     map.setView([startLat, startLng], 16);
+                    console.log('Starting at:', startLat, startLng);
                 }
 
                 // Add markers to map
                 imageData.forEach(img => {
-                    if (img.computed_geometry && img.computed_geometry.coordinates) {
-                        const [lng, lat] = img.computed_geometry.coordinates;
+                    if (img.geometry && img.geometry.coordinates) {
+                        const [lng, lat] = img.geometry.coordinates;
                         const marker = L.circleMarker([lat, lng], {
                             radius: 5,
                             fillColor: '#4285F4',
@@ -216,9 +228,11 @@
                         marker.on('click', () => {
                             if (!isUpdatingFromViewer) {
                                 isUpdatingFromMap = true;
+                                console.log('Clicking marker, moving to image:', img.id);
                                 viewer.moveTo(img.id).then(() => {
                                     setTimeout(() => { isUpdatingFromMap = false; }, 100);
-                                }).catch(() => {
+                                }).catch((err) => {
+                                    console.error('Error moving to image:', err);
                                     isUpdatingFromMap = false;
                                 });
                             }
@@ -227,6 +241,8 @@
                         markers[img.id] = marker;
                     }
                 });
+                
+                console.log('Added', Object.keys(markers).length, 'markers to map');
 
                 // If no starting image found, fit to all markers
                 if (!startImg && imageData.length > 0) {
