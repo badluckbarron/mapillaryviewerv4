@@ -62,10 +62,12 @@
         const TOKEN = 'MLY|24840280672250420|6fc0e204403850a11ccc043866f1b01d';
         const START_ID = '744575191439794';
         const USERNAME = 'HKocen';
+        const MAX_POINTS = 500;
         
         let imageData = [];
         let isUpdatingFromViewer = false;
         let isUpdatingFromMap = false;
+        let updateTimeout = null;
         
         const status = (text) => {
             document.getElementById('status').textContent = text;
@@ -102,14 +104,17 @@
                 ]
             },
             center: [-91.965153, 30.138307],
-            zoom: 15
+            zoom: 17
         });
 
-        // Fetch user images from Graph API
+        // Fetch user images from Graph API within current map bounds
         async function fetchUserImages() {
             try {
-                status('Fetching images...');
-                const url = `https://graph.mapillary.com/images?access_token=${TOKEN}&fields=id,geometry,compass_angle,sequence&creator_username=${USERNAME}&limit=2000`;
+                const bounds = map.getBounds();
+                const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
+                
+                status('Fetching images in view...');
+                const url = `https://graph.mapillary.com/images?access_token=${TOKEN}&fields=id,geometry,compass_angle,sequence&creator_username=${USERNAME}&bbox=${bbox}&limit=${MAX_POINTS}`;
                 
                 const response = await fetch(url);
                 if (!response.ok) {
@@ -120,15 +125,27 @@
                 imageData = data.data || [];
                 
                 if (imageData.length === 0) {
-                    status('No images found for user ' + USERNAME);
+                    status('No images in this area');
+                    updateMapPoints([]);
                     return;
                 }
                 
-                status(`Loaded ${imageData.length} images`);
+                const limitMsg = imageData.length >= MAX_POINTS ? ` (showing max ${MAX_POINTS})` : '';
+                status(`Loaded ${imageData.length} images${limitMsg}`);
                 addImagesToMap();
             } catch (err) {
                 status('Error loading images: ' + err.message);
                 console.error('Error fetching images:', err);
+            }
+        }
+
+        // Update map points
+        function updateMapPoints(features) {
+            if (map.getSource('images')) {
+                map.getSource('images').setData({
+                    type: 'FeatureCollection',
+                    features: features
+                });
             }
         }
 
@@ -212,16 +229,14 @@
             map.on('mouseleave', 'image-points', () => {
                 map.getCanvas().style.cursor = '';
             });
+        }
 
-            // Fit map to all points
-            if (features.length > 0) {
-                const coords = features.map(f => f.geometry.coordinates);
-                const bounds = coords.reduce((bounds, coord) => {
-                    return bounds.extend(coord);
-                }, new maplibregl.LngLatBounds(coords[0], coords[0]));
-                
-                map.fitBounds(bounds, { padding: 50 });
-            }
+        // Schedule map update on pan/zoom
+        function scheduleMapUpdate() {
+            clearTimeout(updateTimeout);
+            updateTimeout = setTimeout(() => {
+                fetchUserImages();
+            }, 500);
         }
 
         // FOV indicator
@@ -341,6 +356,10 @@
         map.on('load', () => {
             fetchUserImages();
         });
+
+        // Update points when map moves
+        map.on('moveend', scheduleMapUpdate);
+        map.on('zoomend', scheduleMapUpdate);
     </script>
 </body>
 </html>
