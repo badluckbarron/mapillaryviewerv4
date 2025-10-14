@@ -4,18 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mapillary Viewer with Map</title>
-    <link href='https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.css' rel='stylesheet' />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- MapillaryJS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mapillary-js@latest/dist/mapillary.css" />
+    <script src="https://cdn.jsdelivr.net/npm/mapillary-js@latest/dist/mapillary.min.js"></script>
+    
+    <!-- MapLibre GL -->
+    <link href="https://unpkg.com/maplibre-gl@3.6.1/dist/maplibre-gl.css" rel="stylesheet" />
+    <script src="https://unpkg.com/maplibre-gl@3.6.1/dist/maplibre-gl.js"></script>
+    
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        body {
+        html, body {
+            height: 100%;
             font-family: Arial, sans-serif;
-            overflow: hidden;
         }
         #container {
             display: flex;
@@ -30,237 +36,262 @@
             width: 50%;
             height: 100%;
         }
-        .loading {
+        #status {
             position: absolute;
-            top: 50%;
-            left: 25%;
-            transform: translate(-50%, -50%);
-            background: rgba(255, 255, 255, 0.9);
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 12px 16px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
             z-index: 1000;
+            font-size: 13px;
+            max-width: 300px;
         }
     </style>
 </head>
 <body>
     <div id="container">
         <div id="viewer">
-            <div class="loading" id="loading">Loading Mapillary images...</div>
+            <div id="status">Loading...</div>
         </div>
         <div id="map"></div>
     </div>
 
-    <script src='https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.js'></script>
     <script>
-        const accessToken = 'MLY|24584288231255151|0d9a69d96c271db6f1804afa84147c66';
-        const username = 'HKocen';
-        const startImageId = '744575191439794';
+        const TOKEN = 'MLY|24584288231255151|0d9a69d96c271db6f1804afa84147c66';
+        const START_ID = '744575191439794';
+        const USERNAME = 'HKocen';
         
-        let viewer;
-        let map;
-        let markers = {};
-        let currentMarker = null;
-        let fovMarker = null;
-        let imageData = [];
-        let isUpdatingFromViewer = false;
-        let isUpdatingFromMap = false;
-
-        // Initialize Leaflet map
-        map = L.map('map').setView([0, 0], 2);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
-        }).addTo(map);
-
-        // Create custom icon for FOV
-        const createFOVIcon = (bearing) => {
-            const svg = `
-                <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
-                    <g transform="translate(20,20) rotate(${bearing})">
-                        <circle cx="0" cy="0" r="6" fill="#4285F4" stroke="white" stroke-width="2"/>
-                        <path d="M 0,-6 L -8,-20 L 8,-20 Z" fill="#4285F4" opacity="0.6" stroke="white" stroke-width="1"/>
-                    </g>
-                </svg>
-            `;
-            return L.divIcon({
-                html: svg,
-                className: 'fov-marker',
-                iconSize: [40, 40],
-                iconAnchor: [20, 20]
-            });
+        const status = (text) => {
+            document.getElementById('status').textContent = text;
         };
 
-        // Initialize Mapillary Viewer after ensuring library is loaded
-        function initializeViewer() {
-            if (typeof Mapillary === 'undefined') {
-                setTimeout(initializeViewer, 100);
-                return;
+        // Initialize Mapillary Viewer
+        const viewer = new mapillary.Viewer({
+            container: 'viewer',
+            accessToken: TOKEN,
+            imageId: START_ID,
+            component: {
+                cover: false,
+                sequence: true,
+                direction: true,
+                zoom: true
             }
+        });
+
+        // Initialize MapLibre map
+        const mapStyle = {
+            version: 8,
+            name: 'OSM + Mapillary',
+            sources: {
+                osm: {
+                    type: 'raster',
+                    tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                    tileSize: 256,
+                    attribution: '© OpenStreetMap contributors'
+                },
+                mapillary: {
+                    type: 'vector',
+                    tiles: [
+                        `https://tiles.mapillary.com/maps/vtp/mly1_public/2/{z}/{x}/{y}?access_token=${encodeURIComponent(TOKEN)}`
+                    ],
+                    minzoom: 0,
+                    maxzoom: 14
+                }
+            },
+            layers: [
+                { id: 'bg', type: 'background', paint: { 'background-color': '#f0f0f0' } },
+                { id: 'osm', type: 'raster', source: 'osm' }
+            ]
+        };
+
+        const map = new maplibregl.Map({
+            container: 'map',
+            style: mapStyle,
+            center: [-91.965153, 30.138307],
+            zoom: 15
+        });
+
+        // Add Mapillary layers when map loads
+        map.on('load', () => {
+            // Sequence lines
+            map.addLayer({
+                id: 'mly-sequences',
+                type: 'line',
+                source: 'mapillary',
+                'source-layer': 'sequence',
+                minzoom: 13,
+                paint: {
+                    'line-color': '#4285F4',
+                    'line-opacity': 0.6,
+                    'line-width': 2
+                }
+            });
+
+            // Image points
+            map.addLayer({
+                id: 'mly-images',
+                type: 'circle',
+                source: 'mapillary',
+                'source-layer': 'image',
+                minzoom: 14,
+                paint: {
+                    'circle-color': '#4285F4',
+                    'circle-opacity': 0.8,
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 3, 18, 6],
+                    'circle-stroke-width': 1,
+                    'circle-stroke-color': '#fff'
+                }
+            });
+
+            // Highlighted image
+            map.addSource('currentImage', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] }
+            });
             
-            viewer = new Mapillary.Viewer({
-                accessToken: accessToken,
-                container: 'viewer',
-                imageId: startImageId,
-                component: {
-                    cover: false,
-                    sequence: {minWidth: 100, maxWidth: 200, visible: true}
+            map.addLayer({
+                id: 'current-image',
+                type: 'circle',
+                source: 'currentImage',
+                paint: {
+                    'circle-color': '#EA4335',
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 5, 18, 10],
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': '#fff'
                 }
             });
 
-            setupViewerEvents();
-            fetchUserImages();
-        }
-
-        // Setup viewer event listeners
-        function setupViewerEvents() {
-            // Update map when viewer position changes
-            viewer.on('image', (event) => {
-                if (isUpdatingFromMap) return;
-                
-                isUpdatingFromViewer = true;
-                const imageId = event.image.id;
-                
-                // Find image data
-                const imgData = imageData.find(img => img.id === imageId);
-                if (!imgData || !imgData.geometry) {
-                    isUpdatingFromViewer = false;
-                    return;
-                }
-
-                const [lng, lat] = imgData.geometry.coordinates;
-                const bearing = imgData.compass_angle || 0;
-
-                // Update current marker style
-                if (currentMarker) {
-                    currentMarker.setStyle({
-                        fillColor: '#4285F4',
-                        radius: 5
-                    });
-                }
-
-                if (markers[imageId]) {
-                    currentMarker = markers[imageId];
-                    currentMarker.setStyle({
-                        fillColor: '#EA4335',
-                        radius: 7
-                    });
-                }
-
-                // Update FOV marker
-                if (fovMarker) {
-                    map.removeLayer(fovMarker);
-                }
-                
-                fovMarker = L.marker([lat, lng], {
-                    icon: createFOVIcon(bearing),
-                    zIndexOffset: 1000
-                }).addTo(map);
-
-                // Center map on current position
-                map.panTo([lat, lng]);
-                
-                setTimeout(() => { isUpdatingFromViewer = false; }, 100);
-            });
-
-            // Update FOV when bearing changes
-            viewer.on('bearing', (event) => {
-                if (!fovMarker) return;
-                
-                const bearing = event.bearing;
-                const latLng = fovMarker.getLatLng();
-                
-                map.removeLayer(fovMarker);
-                fovMarker = L.marker(latLng, {
-                    icon: createFOVIcon(bearing),
-                    zIndexOffset: 1000
-                }).addTo(map);
-            });
-        }
-
-        // Fetch images from Mapillary API
-        async function fetchUserImages() {
-            try {
-                console.log('Fetching images for user:', username);
-                const url = `https://graph.mapillary.com/images?access_token=${accessToken}&fields=id,geometry,compass_angle,captured_at&creator_username=${username}&limit=2000`;
-                console.log('Fetching from:', url);
-                
-                const response = await fetch(url);
-                console.log('Response status:', response.status);
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
-                const data = await response.json();
-                console.log('API Response:', data);
-                
-                imageData = data.data || [];
-                console.log('Number of images found:', imageData.length);
-                
-                if (imageData.length === 0) {
-                    document.getElementById('loading').textContent = 'No images found for user ' + username;
-                    return;
-                }
-
-                // Find starting image to center map
-                const startImg = imageData.find(img => img.id === startImageId);
-                let startLat = 0, startLng = 0;
-                
-                if (startImg && startImg.geometry) {
-                    [startLng, startLat] = startImg.geometry.coordinates;
-                    map.setView([startLat, startLng], 16);
-                    console.log('Starting at:', startLat, startLng);
-                }
-
-                // Add markers to map
-                imageData.forEach(img => {
-                    if (img.geometry && img.geometry.coordinates) {
-                        const [lng, lat] = img.geometry.coordinates;
-                        const marker = L.circleMarker([lat, lng], {
-                            radius: 5,
-                            fillColor: '#4285F4',
-                            color: '#fff',
-                            weight: 1,
-                            opacity: 1,
-                            fillOpacity: 0.7
-                        }).addTo(map);
-                        
-                        marker.on('click', () => {
-                            if (!isUpdatingFromViewer) {
-                                isUpdatingFromMap = true;
-                                console.log('Clicking marker, moving to image:', img.id);
-                                viewer.moveTo(img.id).then(() => {
-                                    setTimeout(() => { isUpdatingFromMap = false; }, 100);
-                                }).catch((err) => {
-                                    console.error('Error moving to image:', err);
-                                    isUpdatingFromMap = false;
-                                });
-                            }
-                        });
-                        
-                        markers[img.id] = marker;
+            // Click handler for images
+            map.on('click', 'mly-images', async (e) => {
+                const feature = e.features[0];
+                const imageId = feature.properties.id || feature.properties.key;
+                if (imageId) {
+                    try {
+                        await viewer.moveTo(String(imageId));
+                    } catch (err) {
+                        console.error('Error moving to image:', err);
                     }
+                }
+            });
+
+            map.on('mouseenter', 'mly-images', () => {
+                map.getCanvas().style.cursor = 'pointer';
+            });
+
+            map.on('mouseleave', 'mly-images', () => {
+                map.getCanvas().style.cursor = '';
+            });
+
+            status('Ready - Click on points to view images');
+        });
+
+        // FOV indicator
+        function makeArcPath(fovDeg) {
+            const r = 45, cx = 50, cy = 50;
+            const rad = Math.PI / 180 * fovDeg;
+            const a0 = -Math.PI / 2 - rad / 2;
+            const a1 = a0 + rad;
+            const x0 = cx + r * Math.cos(a0);
+            const y0 = cy + r * Math.sin(a0);
+            const x1 = cx + r * Math.cos(a1);
+            const y1 = cy + r * Math.sin(a1);
+            return `M ${cx} ${cy} L ${x0} ${y0} A ${r} ${r} 0 0 1 ${x1} ${y1} Z`;
+        }
+
+        function makeCamera(bearingDeg, fovDeg) {
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', makeArcPath(fovDeg));
+            path.setAttribute('fill', '#4285F4');
+            path.setAttribute('fill-opacity', '0.5');
+            path.setAttribute('stroke', 'white');
+            path.setAttribute('stroke-width', '2');
+            
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute('viewBox', '0 0 100 100');
+            svg.appendChild(path);
+            svg.style.height = '100%';
+            svg.style.width = '100%';
+            svg.style.transform = `rotateZ(${bearingDeg}deg)`;
+            
+            const el = document.createElement('div');
+            el.style.height = '80px';
+            el.style.width = '80px';
+            el.appendChild(svg);
+            return el;
+        }
+
+        const cameraEl = makeCamera(0, 90);
+        const cameraMarker = new maplibregl.Marker({
+            element: cameraEl,
+            rotationAlignment: 'map'
+        });
+
+        const posDot = document.createElement('div');
+        posDot.style.cssText = 'width:14px;height:14px;border:3px solid #EA4335;border-radius:50%;background:#fff;';
+        const positionMarker = new maplibregl.Marker({
+            element: posDot,
+            rotationAlignment: 'map'
+        });
+
+        // Sync viewer position to map
+        async function syncPosition() {
+            try {
+                const pos = await viewer.getPosition();
+                const pov = await viewer.getPointOfView();
+                
+                positionMarker.setLngLat([pos.lng, pos.lat]).addTo(map);
+                cameraMarker.setLngLat([pos.lng, pos.lat]).addTo(map);
+                
+                const svg = cameraEl.querySelector('svg');
+                if (svg) {
+                    svg.style.transform = `rotateZ(${pov.bearing}deg)`;
+                }
+                
+                // Update highlighted point
+                map.getSource('currentImage').setData({
+                    type: 'FeatureCollection',
+                    features: [{
+                        type: 'Feature',
+                        geometry: {
+                            type: 'Point',
+                            coordinates: [pos.lng, pos.lat]
+                        }
+                    }]
                 });
                 
-                console.log('Added', Object.keys(markers).length, 'markers to map');
-
-                // If no starting image found, fit to all markers
-                if (!startImg && imageData.length > 0) {
-                    const bounds = Object.values(markers).map(m => m.getLatLng());
-                    if (bounds.length > 0) {
-                        map.fitBounds(L.latLngBounds(bounds), { padding: [50, 50] });
-                    }
-                }
-
-                document.getElementById('loading').style.display = 'none';
-            } catch (error) {
-                console.error('Error fetching images:', error);
-                document.getElementById('loading').textContent = 'Error loading images: ' + error.message;
+                map.panTo([pos.lng, pos.lat]);
+            } catch (err) {
+                console.error('Error syncing position:', err);
             }
         }
 
-        // Start initialization
-        initializeViewer();
+        // Update FOV when it changes
+        viewer.on('fov', async () => {
+            try {
+                const vc = viewer.getContainer();
+                const vFov = Math.PI / 180 * (await viewer.getFieldOfView());
+                const aspect = vc.offsetHeight ? vc.offsetWidth / vc.offsetHeight : 0;
+                const hFovDeg = Math.atan(aspect * Math.tan(0.5 * vFov)) * 2 * 180 / Math.PI;
+                const path = cameraEl.querySelector('path');
+                if (path) {
+                    path.setAttribute('d', makeArcPath(hFovDeg));
+                }
+            } catch (err) {
+                console.error('Error updating FOV:', err);
+            }
+        });
+
+        // Set up viewer event listeners
+        viewer.on('load', syncPosition);
+        viewer.on('image', syncPosition);
+        viewer.on('position', syncPosition);
+        viewer.on('pov', syncPosition);
+
+        window.addEventListener('resize', () => {
+            if (viewer.emit) viewer.emit('fov');
+        });
     </script>
 </body>
 </html>
