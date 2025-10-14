@@ -53,7 +53,7 @@
 <body>
     <div id="container">
         <div id="viewer">
-            <div id="status">Loading...</div>
+            <div id="status">Loading images...</div>
         </div>
         <div id="map"></div>
     </div>
@@ -62,6 +62,10 @@
         const TOKEN = 'MLY|24584288231255151|0d9a69d96c271db6f1804afa84147c66';
         const START_ID = '744575191439794';
         const USERNAME = 'HKocen';
+        
+        let imageData = [];
+        let isUpdatingFromViewer = false;
+        let isUpdatingFromMap = false;
         
         const status = (text) => {
             document.getElementById('status').textContent = text;
@@ -81,71 +85,92 @@
         });
 
         // Initialize MapLibre map
-        const mapStyle = {
-            version: 8,
-            name: 'OSM + Mapillary',
-            sources: {
-                osm: {
-                    type: 'raster',
-                    tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-                    tileSize: 256,
-                    attribution: '© OpenStreetMap contributors'
-                },
-                mapillary: {
-                    type: 'vector',
-                    tiles: [
-                        `https://tiles.mapillary.com/maps/vtp/mly1_public/2/{z}/{x}/{y}?access_token=${encodeURIComponent(TOKEN)}`
-                    ],
-                    minzoom: 0,
-                    maxzoom: 14
-                }
-            },
-            layers: [
-                { id: 'bg', type: 'background', paint: { 'background-color': '#f0f0f0' } },
-                { id: 'osm', type: 'raster', source: 'osm' }
-            ]
-        };
-
         const map = new maplibregl.Map({
             container: 'map',
-            style: mapStyle,
+            style: {
+                version: 8,
+                sources: {
+                    osm: {
+                        type: 'raster',
+                        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                        tileSize: 256,
+                        attribution: '© OpenStreetMap contributors'
+                    }
+                },
+                layers: [
+                    { id: 'osm', type: 'raster', source: 'osm' }
+                ]
+            },
             center: [-91.965153, 30.138307],
             zoom: 15
         });
 
-        // Add Mapillary layers when map loads
-        map.on('load', () => {
-            // Sequence lines
-            map.addLayer({
-                id: 'mly-sequences',
-                type: 'line',
-                source: 'mapillary',
-                'source-layer': 'sequence',
-                minzoom: 13,
-                paint: {
-                    'line-color': '#4285F4',
-                    'line-opacity': 0.6,
-                    'line-width': 2
+        // Fetch user images from Graph API
+        async function fetchUserImages() {
+            try {
+                status('Fetching images...');
+                const url = `https://graph.mapillary.com/images?access_token=${TOKEN}&fields=id,geometry,compass_angle,sequence&creator_username=${USERNAME}&limit=2000`;
+                
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                imageData = data.data || [];
+                
+                if (imageData.length === 0) {
+                    status('No images found for user ' + USERNAME);
+                    return;
+                }
+                
+                status(`Loaded ${imageData.length} images`);
+                addImagesToMap();
+            } catch (err) {
+                status('Error loading images: ' + err.message);
+                console.error('Error fetching images:', err);
+            }
+        }
+
+        // Add images to map as GeoJSON
+        function addImagesToMap() {
+            const features = imageData
+                .filter(img => img.geometry && img.geometry.coordinates)
+                .map(img => ({
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Point',
+                        coordinates: img.geometry.coordinates
+                    },
+                    properties: {
+                        id: img.id,
+                        compass_angle: img.compass_angle || 0
+                    }
+                }));
+
+            map.addSource('images', {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: features
                 }
             });
 
-            // Image points
+            // Add image points layer
             map.addLayer({
-                id: 'mly-images',
+                id: 'image-points',
                 type: 'circle',
-                source: 'mapillary',
-                'source-layer': 'image',
-                minzoom: 14,
+                source: 'images',
                 paint: {
                     'circle-color': '#4285F4',
-                    'circle-opacity': 0.8,
-                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 3, 18, 6],
-                    'circle-stroke-width': 1,
-                    'circle-stroke-color': '#fff'
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 3, 18, 8],
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': '#fff',
+                    'circle-opacity': 0.8
                 }
             });
 
-            // Highlighted image
+            // Current image highlight
             map.addSource('currentImage', {
                 type: 'geojson',
                 data: { type: 'FeatureCollection', features: [] }
@@ -157,35 +182,47 @@
                 source: 'currentImage',
                 paint: {
                     'circle-color': '#EA4335',
-                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 5, 18, 10],
-                    'circle-stroke-width': 2,
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 5, 18, 12],
+                    'circle-stroke-width': 3,
                     'circle-stroke-color': '#fff'
                 }
             });
 
-            // Click handler for images
-            map.on('click', 'mly-images', async (e) => {
+            // Click handler
+            map.on('click', 'image-points', async (e) => {
+                if (isUpdatingFromViewer) return;
+                
                 const feature = e.features[0];
-                const imageId = feature.properties.id || feature.properties.key;
+                const imageId = feature.properties.id;
                 if (imageId) {
+                    isUpdatingFromMap = true;
                     try {
                         await viewer.moveTo(String(imageId));
                     } catch (err) {
                         console.error('Error moving to image:', err);
                     }
+                    setTimeout(() => { isUpdatingFromMap = false; }, 200);
                 }
             });
 
-            map.on('mouseenter', 'mly-images', () => {
+            map.on('mouseenter', 'image-points', () => {
                 map.getCanvas().style.cursor = 'pointer';
             });
 
-            map.on('mouseleave', 'mly-images', () => {
+            map.on('mouseleave', 'image-points', () => {
                 map.getCanvas().style.cursor = '';
             });
 
-            status('Ready - Click on points to view images');
-        });
+            // Fit map to all points
+            if (features.length > 0) {
+                const coords = features.map(f => f.geometry.coordinates);
+                const bounds = coords.reduce((bounds, coord) => {
+                    return bounds.extend(coord);
+                }, new maplibregl.LngLatBounds(coords[0], coords[0]));
+                
+                map.fitBounds(bounds, { padding: 50 });
+            }
+        }
 
         // FOV indicator
         function makeArcPath(fovDeg) {
@@ -237,7 +274,10 @@
 
         // Sync viewer position to map
         async function syncPosition() {
+            if (isUpdatingFromMap) return;
+            
             try {
+                isUpdatingFromViewer = true;
                 const pos = await viewer.getPosition();
                 const pov = await viewer.getPointOfView();
                 
@@ -250,20 +290,24 @@
                 }
                 
                 // Update highlighted point
-                map.getSource('currentImage').setData({
-                    type: 'FeatureCollection',
-                    features: [{
-                        type: 'Feature',
-                        geometry: {
-                            type: 'Point',
-                            coordinates: [pos.lng, pos.lat]
-                        }
-                    }]
-                });
+                if (map.getSource('currentImage')) {
+                    map.getSource('currentImage').setData({
+                        type: 'FeatureCollection',
+                        features: [{
+                            type: 'Feature',
+                            geometry: {
+                                type: 'Point',
+                                coordinates: [pos.lng, pos.lat]
+                            }
+                        }]
+                    });
+                }
                 
                 map.panTo([pos.lng, pos.lat]);
+                setTimeout(() => { isUpdatingFromViewer = false; }, 200);
             } catch (err) {
                 console.error('Error syncing position:', err);
+                isUpdatingFromViewer = false;
             }
         }
 
@@ -291,6 +335,11 @@
 
         window.addEventListener('resize', () => {
             if (viewer.emit) viewer.emit('fov');
+        });
+
+        // Initialize when map loads
+        map.on('load', () => {
+            fetchUserImages();
         });
     </script>
 </body>
