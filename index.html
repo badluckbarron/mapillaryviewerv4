@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mapillary Viewer with Map</title>
-    <script src='https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.js'></script>
     <link href='https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.css' rel='stylesheet' />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -52,6 +51,7 @@
         <div id="map"></div>
     </div>
 
+    <script src='https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.js'></script>
     <script>
         const accessToken = 'MLY|24584288231255151|0d9a69d96c271db6f1804afa84147c66';
         const username = 'HKocen';
@@ -90,16 +90,92 @@
             });
         };
 
-        // Initialize Mapillary Viewer
-        viewer = new Mapillary.Viewer({
-            accessToken: accessToken,
-            container: 'viewer',
-            imageId: startImageId,
-            component: {
-                cover: false,
-                sequence: {minWidth: 100, maxWidth: 200, visible: true}
+        // Initialize Mapillary Viewer after ensuring library is loaded
+        function initializeViewer() {
+            if (typeof Mapillary === 'undefined') {
+                setTimeout(initializeViewer, 100);
+                return;
             }
-        });
+            
+            viewer = new Mapillary.Viewer({
+                accessToken: accessToken,
+                container: 'viewer',
+                imageId: startImageId,
+                component: {
+                    cover: false,
+                    sequence: {minWidth: 100, maxWidth: 200, visible: true}
+                }
+            });
+
+            setupViewerEvents();
+            fetchUserImages();
+        }
+
+        // Setup viewer event listeners
+        function setupViewerEvents() {
+            // Update map when viewer position changes
+            viewer.on('image', (event) => {
+                if (isUpdatingFromMap) return;
+                
+                isUpdatingFromViewer = true;
+                const imageId = event.image.id;
+                
+                // Find image data
+                const imgData = imageData.find(img => img.id === imageId);
+                if (!imgData || !imgData.computed_geometry) {
+                    isUpdatingFromViewer = false;
+                    return;
+                }
+
+                const [lng, lat] = imgData.computed_geometry.coordinates;
+                const bearing = imgData.computed_compass_angle || 0;
+
+                // Update current marker style
+                if (currentMarker) {
+                    currentMarker.setStyle({
+                        fillColor: '#4285F4',
+                        radius: 5
+                    });
+                }
+
+                if (markers[imageId]) {
+                    currentMarker = markers[imageId];
+                    currentMarker.setStyle({
+                        fillColor: '#EA4335',
+                        radius: 7
+                    });
+                }
+
+                // Update FOV marker
+                if (fovMarker) {
+                    map.removeLayer(fovMarker);
+                }
+                
+                fovMarker = L.marker([lat, lng], {
+                    icon: createFOVIcon(bearing),
+                    zIndexOffset: 1000
+                }).addTo(map);
+
+                // Center map on current position
+                map.panTo([lat, lng]);
+                
+                setTimeout(() => { isUpdatingFromViewer = false; }, 100);
+            });
+
+            // Update FOV when bearing changes
+            viewer.on('bearing', (event) => {
+                if (!fovMarker) return;
+                
+                const bearing = event.bearing;
+                const latLng = fovMarker.getLatLng();
+                
+                map.removeLayer(fovMarker);
+                fovMarker = L.marker(latLng, {
+                    icon: createFOVIcon(bearing),
+                    zIndexOffset: 1000
+                }).addTo(map);
+            });
+        }
 
         // Fetch images from Mapillary API
         async function fetchUserImages() {
@@ -167,71 +243,8 @@
             }
         }
 
-        // Update map when viewer position changes
-        viewer.on('image', (event) => {
-            if (isUpdatingFromMap) return;
-            
-            isUpdatingFromViewer = true;
-            const imageId = event.image.id;
-            
-            // Find image data
-            const imgData = imageData.find(img => img.id === imageId);
-            if (!imgData || !imgData.computed_geometry) {
-                isUpdatingFromViewer = false;
-                return;
-            }
-
-            const [lng, lat] = imgData.computed_geometry.coordinates;
-            const bearing = imgData.computed_compass_angle || 0;
-
-            // Update current marker style
-            if (currentMarker) {
-                currentMarker.setStyle({
-                    fillColor: '#4285F4',
-                    radius: 5
-                });
-            }
-
-            if (markers[imageId]) {
-                currentMarker = markers[imageId];
-                currentMarker.setStyle({
-                    fillColor: '#EA4335',
-                    radius: 7
-                });
-            }
-
-            // Update FOV marker
-            if (fovMarker) {
-                map.removeLayer(fovMarker);
-            }
-            
-            fovMarker = L.marker([lat, lng], {
-                icon: createFOVIcon(bearing),
-                zIndexOffset: 1000
-            }).addTo(map);
-
-            // Center map on current position
-            map.panTo([lat, lng]);
-            
-            setTimeout(() => { isUpdatingFromViewer = false; }, 100);
-        });
-
-        // Update FOV when bearing changes
-        viewer.on('bearing', (event) => {
-            if (!fovMarker) return;
-            
-            const bearing = event.bearing;
-            const latLng = fovMarker.getLatLng();
-            
-            map.removeLayer(fovMarker);
-            fovMarker = L.marker(latLng, {
-                icon: createFOVIcon(bearing),
-                zIndexOffset: 1000
-            }).addTo(map);
-        });
-
-        // Start loading images
-        fetchUserImages();
+        // Start initialization
+        initializeViewer();
     </script>
 </body>
 </html>
