@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mapillary Viewer with Map</title>
-    <script src='https://unpkg.com/mapillary-js@4.1.1/dist/mapillary.js'></script>
-    <link href='https://unpkg.com/mapillary-js@4.1.1/dist/mapillary.css' rel='stylesheet' />
+    <script src='https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.js'></script>
+    <link href='https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.css' rel='stylesheet' />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -55,6 +55,7 @@
     <script>
         const accessToken = 'MLY|24584288231255151|0d9a69d96c271db6f1804afa84147c66';
         const username = 'HKocen';
+        const startImageId = '744575191439794';
         
         let viewer;
         let map;
@@ -90,12 +91,14 @@
         };
 
         // Initialize Mapillary Viewer
-        viewer = new Mapillary.Viewer({
+        const {Viewer} = window.Mapillary;
+        viewer = new Viewer({
             accessToken: accessToken,
             container: 'viewer',
+            imageId: startImageId,
             component: {
                 cover: false,
-                sequence: { visible: true }
+                sequence: {minWidth: 100, maxWidth: 200, visible: true}
             }
         });
 
@@ -111,6 +114,15 @@
                 if (imageData.length === 0) {
                     document.getElementById('loading').textContent = 'No images found for user ' + username;
                     return;
+                }
+
+                // Find starting image to center map
+                const startImg = imageData.find(img => img.id === startImageId);
+                let startLat = 0, startLng = 0;
+                
+                if (startImg && startImg.computed_geometry) {
+                    [startLng, startLat] = startImg.computed_geometry.coordinates;
+                    map.setView([startLat, startLng], 16);
                 }
 
                 // Add markers to map
@@ -141,24 +153,18 @@
                     }
                 });
 
-                // Fit map to markers
-                if (imageData.length > 0) {
+                // If no starting image found, fit to all markers
+                if (!startImg && imageData.length > 0) {
                     const bounds = Object.values(markers).map(m => m.getLatLng());
                     if (bounds.length > 0) {
                         map.fitBounds(L.latLngBounds(bounds), { padding: [50, 50] });
                     }
-
-                    // Move to first image
-                    viewer.moveTo(imageData[0].id).then(() => {
-                        document.getElementById('loading').style.display = 'none';
-                    }).catch(err => {
-                        console.error('Error loading first image:', err);
-                        document.getElementById('loading').textContent = 'Error loading images';
-                    });
                 }
+
+                document.getElementById('loading').style.display = 'none';
             } catch (error) {
                 console.error('Error fetching images:', error);
-                document.getElementById('loading').textContent = 'Error loading images';
+                document.getElementById('loading').textContent = 'Error loading images: ' + error.message;
             }
         }
 
