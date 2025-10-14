@@ -62,12 +62,14 @@
         const TOKEN = 'MLY|24840280672250420|6fc0e204403850a11ccc043866f1b01d';
         const START_ID = '744575191439794';
         const USERNAME = 'HKocen';
-        const MAX_POINTS = 500;
+        const MAX_POINTS = 2000;
+        const PER_REQUEST = 500;
         
         let imageData = [];
         let isUpdatingFromViewer = false;
         let isUpdatingFromMap = false;
         let updateTimeout = null;
+        let isFetching = false;
         
         const status = (text) => {
             document.getElementById('status').textContent = text;
@@ -109,20 +111,58 @@
 
         // Fetch user images from Graph API within current map bounds
         async function fetchUserImages() {
+            if (isFetching) return;
+            isFetching = true;
+            
             try {
                 const bounds = map.getBounds();
                 const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
                 
                 status('Fetching images in view...');
-                const url = `https://graph.mapillary.com/images?access_token=${TOKEN}&fields=id,geometry,compass_angle,sequence&creator_username=${USERNAME}&bbox=${bbox}&limit=${MAX_POINTS}`;
                 
-                const response = await fetch(url);
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
+                let allImages = [];
+                let after = null;
+                
+                // Fetch multiple pages if needed
+                while (allImages.length < MAX_POINTS) {
+                    const url = new URL('https://graph.mapillary.com/images');
+                    url.searchParams.set('access_token', TOKEN);
+                    url.searchParams.set('fields', 'id,geometry,compass_angle,sequence');
+                    url.searchParams.set('creator_username', USERNAME);
+                    url.searchParams.set('bbox', bbox);
+                    url.searchParams.set('limit', PER_REQUEST);
+                    if (after) {
+                        url.searchParams.set('after', after);
+                    }
+                    
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    const images = data.data || [];
+                    
+                    if (images.length === 0) break;
+                    
+                    allImages = allImages.concat(images);
+                    
+                    // Check if there's more data
+                    if (data.paging && data.paging.cursors && data.paging.cursors.after) {
+                        after = data.paging.cursors.after;
+                        status(`Loaded ${allImages.length} images, fetching more...`);
+                    } else {
+                        break;
+                    }
+                    
+                    // Stop if we hit max
+                    if (allImages.length >= MAX_POINTS) {
+                        allImages = allImages.slice(0, MAX_POINTS);
+                        break;
+                    }
                 }
                 
-                const data = await response.json();
-                imageData = data.data || [];
+                imageData = allImages;
                 
                 if (imageData.length === 0) {
                     status('No images in this area');
@@ -138,6 +178,8 @@
             } catch (err) {
                 status('Error loading images: ' + err.message);
                 console.error('Error fetching images:', err);
+            } finally {
+                isFetching = false;
             }
         }
 
@@ -248,7 +290,7 @@
             clearTimeout(updateTimeout);
             updateTimeout = setTimeout(() => {
                 fetchUserImages();
-            }, 500);
+            }, 300);
         }
 
         // FOV indicator
