@@ -213,10 +213,21 @@
                 allImages.sort((a, b) => a.distance - b.distance);
                 imageData = allImages.slice(0, MAX_POINTS);
                 
-                console.log(`Showing ${imageData.length} closest images (max distance: ${imageData[imageData.length-1]?.distance?.toFixed(1)}m)`);
+                const maxDist = imageData.length > 0 ? imageData[imageData.length-1]?.distance?.toFixed(1) : 0;
+                const minDist = imageData.length > 0 ? imageData[0]?.distance?.toFixed(1) : 0;
+                console.log(`Showing ${imageData.length} closest images (range: ${minDist}m - ${maxDist}m from center)`);
                 
                 status(`Loaded ${imageData.length} closest images`);
                 addImagesToMap();
+                
+                // Center map on the actual closest point if significantly off
+                if (imageData.length > 0 && imageData[0].distance > 100) {
+                    const closest = imageData[0];
+                    if (closest.geometry && closest.geometry.coordinates) {
+                        const [lng, lat] = closest.geometry.coordinates;
+                        map.panTo([lng, lat]);
+                    }
+                }
             } catch (err) {
                 status('Error loading images: ' + err.message);
                 console.error('Error fetching images:', err);
