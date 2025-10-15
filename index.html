@@ -82,6 +82,57 @@
             color: #666;
             margin-top: 4px;
         }
+        #error-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.98);
+            padding: 24px 32px;
+            border-radius: 8px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+            z-index: 2000;
+            display: none;
+            text-align: center;
+            max-width: 400px;
+        }
+        #error-container.visible {
+            display: block;
+        }
+        #error-container h3 {
+            color: #d32f2f;
+            margin-bottom: 12px;
+            font-size: 18px;
+        }
+        #error-container p {
+            color: #666;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+        #error-container button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+        #reload-btn {
+            background: #4285F4;
+            color: white;
+        }
+        #reload-btn:hover {
+            background: #3367D6;
+        }
+        #mapillary-btn {
+            background: #34A853;
+            color: white;
+        }
+        #mapillary-btn:hover {
+            background: #2D9348;
+        }
     </style>
 </head>
 <body>
@@ -97,6 +148,15 @@
             </div>
         </div>
         <div id="map"></div>
+    </div>
+    
+    <div id="error-container">
+        <h3>⚠️ Loading Error</h3>
+        <p id="error-message">Mapillary API issue occurred. Would you like to try reloading?</p>
+        <div>
+            <button id="reload-btn">Reload</button>
+            <button id="mapillary-btn">No - Open Mapillary data directly</button>
+        </div>
     </div>
 
     <script>
@@ -129,6 +189,28 @@
             document.getElementById('progress-text').textContent = 
                 `Request ${current} of ~${total} | ${filtered} images match filter`;
         };
+        
+        const showError = (message) => {
+            const errorContainer = document.getElementById('error-container');
+            document.getElementById('error-message').textContent = message || 
+                'Mapillary API issue occurred. Would you like to try reloading?';
+            errorContainer.classList.add('visible');
+            showProgress(false);
+        };
+        
+        const hideError = () => {
+            document.getElementById('error-container').classList.remove('visible');
+        };
+        
+        // Error dialog button handlers
+        document.getElementById('reload-btn').addEventListener('click', () => {
+            hideError();
+            location.reload();
+        });
+        
+        document.getElementById('mapillary-btn').addEventListener('click', () => {
+            window.open('https://www.mapillary.com/app/user/vukmercd23?lat=30.138492112426093&lng=-91.95221806850299&z=12.85546044226375&dateFrom=2025-10-01&username%5B%5D=vukmercd23&dateTo=2025-10-15&pKey=1347465910083369', '_blank');
+        });
 
         // Initialize Mapillary Viewer
         const viewer = new mapillary.Viewer({
@@ -191,7 +273,9 @@
                     
                     const response = await fetch(url);
                     if (!response.ok) {
-                        console.error(`HTTP ${response.status}: ${await response.text()}`);
+                        const errorText = await response.text();
+                        console.error(`HTTP ${response.status}: ${errorText}`);
+                        showError(`API Error (${response.status}): Failed to load imagery data. Would you like to try reloading?`);
                         throw new Error(`HTTP ${response.status}`);
                     }
                     
@@ -265,9 +349,9 @@
                     }
                     
                     // Stop if we've collected enough images
-                    if (allImages.length >= 59744) {
-                        console.log('Reached maximum load of 59,744 images');
-                        allImages = allImages.slice(0, 59744);
+                    if (allImages.length >= 20000) {
+                        console.log('Reached maximum of 20,000 images');
+                        allImages = allImages.slice(0, 20000);
                         break;
                     }
                 }
@@ -286,7 +370,7 @@
                     return;
                 }
                 
-                status(`Loaded ${imageData.length} Timmons Group Broussard, LA images (Oct 2025)`);
+                status(`Loaded ${imageData.length} images (Oct 1-15, 2025)`);
                 addImagesToMap();
                 
                 // Fit map to show all points
@@ -306,6 +390,7 @@
             } catch (err) {
                 status('Error loading images: ' + err.message);
                 console.error('Error fetching images:', err);
+                showError(`Error loading imagery: ${err.message}. Would you like to try reloading?`);
             }
         }
 
@@ -536,7 +621,7 @@
                     'circle-color': '#4285F4',
                     'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 3, 18, 8],
                     'circle-stroke-width': 2,
-                    'circle-stroke-color': '#fff',
+                    'circle-stroke-color': '#1976D2',
                     'circle-opacity': 0.8
                 }
             });
