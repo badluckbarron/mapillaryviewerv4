@@ -62,7 +62,7 @@
         const TOKEN = 'MLY|24840280672250420|6fc0e204403850a11ccc043866f1b01d';
         const START_ID = '744575191439794';
         const USERNAME = 'HKocen';
-        const MAX_POINTS = 5000;
+        const MAX_POINTS = 2000;
         const PER_REQUEST = 1000;
         
         let imageData = [];
@@ -123,7 +123,7 @@
                 let allImages = [];
                 let after = null;
                 let requestCount = 0;
-                const maxRequests = 10; // Limit number of pagination requests
+                const maxRequests = 3; // Limit number of pagination requests for speed
                 
                 // Fetch multiple pages if needed
                 while (allImages.length < MAX_POINTS && requestCount < maxRequests) {
@@ -203,46 +203,52 @@
 
         // Add images to map as GeoJSON
         function addImagesToMap() {
-            const features = imageData
-                .filter(img => img.geometry && img.geometry.coordinates)
-                .map(img => ({
+            const features = [];
+            const sequenceGroups = {};
+            
+            // Single pass through data to build both features and sequence groups
+            for (const img of imageData) {
+                if (!img.geometry || !img.geometry.coordinates) continue;
+                
+                const coords = img.geometry.coordinates;
+                
+                // Add point feature
+                features.push({
                     type: 'Feature',
                     geometry: {
                         type: 'Point',
-                        coordinates: img.geometry.coordinates
+                        coordinates: coords
                     },
                     properties: {
                         id: img.id,
                         compass_angle: img.compass_angle || 0,
                         sequence: img.sequence || null
                     }
-                }));
-
-            // Group images by sequence to create lines
-            const sequenceGroups = {};
-            imageData.forEach(img => {
-                if (img.sequence && img.geometry && img.geometry.coordinates) {
+                });
+                
+                // Group for sequences
+                if (img.sequence) {
                     if (!sequenceGroups[img.sequence]) {
                         sequenceGroups[img.sequence] = [];
                     }
                     sequenceGroups[img.sequence].push({
-                        coords: img.geometry.coordinates,
+                        coords: coords,
                         captured_at: img.captured_at
                     });
                 }
-            });
+            }
 
             // Create line features from sequences
-            const lineFeatures = Object.entries(sequenceGroups).map(([seqId, points]) => {
-                // Sort by capture time if available
-                points.sort((a, b) => {
-                    if (a.captured_at && b.captured_at) {
-                        return new Date(a.captured_at) - new Date(b.captured_at);
-                    }
-                    return 0;
-                });
+            const lineFeatures = [];
+            for (const [seqId, points] of Object.entries(sequenceGroups)) {
+                if (points.length < 2) continue; // Skip single-point sequences
                 
-                return {
+                // Sort by capture time if available
+                if (points[0].captured_at) {
+                    points.sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at));
+                }
+                
+                lineFeatures.push({
                     type: 'Feature',
                     geometry: {
                         type: 'LineString',
@@ -251,8 +257,8 @@
                     properties: {
                         sequence: seqId
                     }
-                };
-            });
+                });
+            }
 
             // Check if source exists, update if it does, create if it doesn't
             if (map.getSource('images')) {
@@ -388,7 +394,7 @@
             clearTimeout(updateTimeout);
             updateTimeout = setTimeout(() => {
                 fetchUserImages();
-            }, 300);
+            }, 800);
         }
 
         // FOV indicator
