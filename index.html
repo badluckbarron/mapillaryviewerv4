@@ -147,15 +147,22 @@
                     if (requestCount === 1) {
                         console.log('Sample dates from first request:');
                         images.slice(0, 5).forEach(img => {
-                            console.log(`  ${img.id}: ${img.captured_at}`);
+                            console.log(`  ${img.id}: ${img.captured_at} (type: ${typeof img.captured_at})`);
                         });
                         console.log(`Looking for dates between ${START_DATE} and ${END_DATE}`);
+                        console.log(`Start timestamp: ${startTime}, End timestamp: ${endTime}`);
                     }
                     
                     // Filter by date in JavaScript
                     const filtered = images.filter(img => {
                         if (!img.captured_at) return false;
-                        const capturedTime = Date.parse(img.captured_at);
+                        // captured_at might be a Unix timestamp (number) or ISO string
+                        let capturedTime;
+                        if (typeof img.captured_at === 'number') {
+                            capturedTime = img.captured_at;
+                        } else {
+                            capturedTime = Date.parse(img.captured_at);
+                        }
                         return capturedTime >= startTime && capturedTime < endTime;
                     });
                     
@@ -163,11 +170,18 @@
                     
                     // Debug: show why images are being filtered out
                     if (filtered.length === 0 && images.length > 0 && requestCount === 1) {
-                        console.log('First image dates:');
+                        console.log('First image dates analysis:');
                         images.slice(0, 3).forEach(img => {
-                            const capturedTime = Date.parse(img.captured_at);
+                            let capturedTime;
+                            if (typeof img.captured_at === 'number') {
+                                capturedTime = img.captured_at;
+                            } else {
+                                capturedTime = Date.parse(img.captured_at);
+                            }
+                            const date = new Date(capturedTime);
                             const inRange = capturedTime >= startTime && capturedTime < endTime;
-                            console.log(`  ${img.captured_at} -> ${inRange ? 'IN' : 'OUT'} (timestamp: ${capturedTime})`);
+                            console.log(`  ${img.captured_at} -> ${date.toISOString()} -> ${inRange ? 'IN' : 'OUT'}`);
+                            console.log(`    Captured: ${capturedTime}, Start: ${startTime}, End: ${endTime}`);
                         });
                     }
                     
