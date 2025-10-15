@@ -143,6 +143,15 @@
                     
                     if (images.length === 0) break;
                     
+                    // Debug: log first few dates
+                    if (requestCount === 1) {
+                        console.log('Sample dates from first request:');
+                        images.slice(0, 5).forEach(img => {
+                            console.log(`  ${img.id}: ${img.captured_at}`);
+                        });
+                        console.log(`Looking for dates between ${START_DATE} and ${END_DATE}`);
+                    }
+                    
                     // Filter by date in JavaScript
                     const filtered = images.filter(img => {
                         if (!img.captured_at) return false;
@@ -151,6 +160,17 @@
                     });
                     
                     console.log(`  Filtered to ${filtered.length} images in date range`);
+                    
+                    // Debug: show why images are being filtered out
+                    if (filtered.length === 0 && images.length > 0 && requestCount === 1) {
+                        console.log('First image dates:');
+                        images.slice(0, 3).forEach(img => {
+                            const capturedTime = Date.parse(img.captured_at);
+                            const inRange = capturedTime >= startTime && capturedTime < endTime;
+                            console.log(`  ${img.captured_at} -> ${inRange ? 'IN' : 'OUT'} (timestamp: ${capturedTime})`);
+                        });
+                    }
+                    
                     allImages = allImages.concat(filtered);
                     status(`Loaded ${allImages.length} images in date range...`);
                     
@@ -177,7 +197,7 @@
                     return;
                 }
                 
-                status(`Loaded ${imageData.length} images (Oct 1-15, 2024)`);
+                status(`Loaded ${imageData.length} images (Oct 1-15, 2025)`);
                 addImagesToMap();
                 
                 // Fit map to show all points
