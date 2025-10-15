@@ -151,7 +151,7 @@
                 url.searchParams.set('fields', 'id,geometry,compass_angle,sequence,captured_at');
                 url.searchParams.set('creator_username', USERNAME);
                 url.searchParams.set('bbox', bbox);
-                url.searchParams.set('limit', 500); // Fetch more, then filter to closest
+                url.searchParams.set('limit', 2000); // Fetch more to ensure we get some
                 
                 const response = await fetch(url);
                 if (!response.ok) {
@@ -164,8 +164,30 @@
                 
                 console.log(`API returned ${allImages.length} images`);
                 
+                // If no images found, try expanding the search
                 if (allImages.length === 0) {
-                    status('No images nearby');
+                    console.log('No images found, trying larger area...');
+                    const largerRadius = radiusMeters * 3;
+                    const largerBounds = getBoundsFromCenter(currentCenter.lat, currentCenter.lng, largerRadius);
+                    const largerBbox = `${largerBounds.west},${largerBounds.south},${largerBounds.east},${largerBounds.north}`;
+                    
+                    const url2 = new URL('https://graph.mapillary.com/images');
+                    url2.searchParams.set('access_token', TOKEN);
+                    url2.searchParams.set('fields', 'id,geometry,compass_angle,sequence,captured_at');
+                    url2.searchParams.set('creator_username', USERNAME);
+                    url2.searchParams.set('bbox', largerBbox);
+                    url2.searchParams.set('limit', 2000);
+                    
+                    const response2 = await fetch(url2);
+                    if (response2.ok) {
+                        const data2 = await response2.json();
+                        allImages = data2.data || [];
+                        console.log(`Larger search returned ${allImages.length} images`);
+                    }
+                }
+                
+                if (allImages.length === 0) {
+                    status('No images nearby - try zooming out');
                     imageData = [];
                     if (map.getSource('images')) {
                         map.getSource('images').setData({ type: 'FeatureCollection', features: [] });
@@ -234,12 +256,12 @@
         
         // Get appropriate search radius based on zoom level
         function getRadiusForZoom(zoom) {
-            if (zoom >= 18) return 200;
-            if (zoom >= 17) return 400;
-            if (zoom >= 16) return 800;
-            if (zoom >= 15) return 1500;
-            if (zoom >= 14) return 3000;
-            return 5000;
+            if (zoom >= 18) return 500;
+            if (zoom >= 17) return 1000;
+            if (zoom >= 16) return 2000;
+            if (zoom >= 15) return 4000;
+            if (zoom >= 14) return 8000;
+            return 15000;
         }
 
         // Update map points
