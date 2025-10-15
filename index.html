@@ -383,9 +383,9 @@
                     }
                     
                     // Stop if we've collected enough images
-                    if (allImages.length >= 20000) {
-                        console.log('Reached maximum of 20,000 images');
-                        allImages = allImages.slice(0, 20000);
+                    if (allImages.length >= 59477) {
+                        console.log('Reached maximum of 59,477 images');
+                        allImages = allImages.slice(0, 59477);
                         break;
                     }
                 }
@@ -400,11 +400,11 @@
                 imageData = allImages;
                 
                 if (imageData.length === 0) {
-                    status('No images found for date range');
+                    status('No Timmons Group images found using filtering criteria');
                     return;
                 }
                 
-                status(`Loaded ${imageData.length} images (Oct 1-15, 2025)`);
+                status(`Loaded ${imageData.length} Timmons Group images for Broussard, LA (Oct 2025)`);
                 addImagesToMap();
                 
                 // Fit map to show all points
@@ -424,7 +424,7 @@
             } catch (err) {
                 status('Error loading images: ' + err.message);
                 console.error('Error fetching images:', err);
-                showError(`Error loading imagery: ${err.message}. Would you like to try reloading?`);
+                showError(`Error loading imagery: ${err.message}. Would you like to try reloading? You can also load Mapillary directly, using the button at the bottom left of the screen.`);
             }
         }
 
