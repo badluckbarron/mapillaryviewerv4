@@ -62,8 +62,8 @@
         const TOKEN = 'MLY|24840280672250420|6fc0e204403850a11ccc043866f1b01d';
         const START_ID = '1347465910083369';
         const USERNAME = 'vukmercd23';
-        const START_DATE = '2025-10-01T00:00:00Z';
-        const END_DATE = '2025-10-16T00:00:00Z'; // Exclusive, so 10/15 23:59:59 is included
+        const START_DATE = '2024-10-01T00:00:00Z';
+        const END_DATE = '2024-10-16T00:00:00Z'; // Exclusive, so 10/15 23:59:59 is included
         
         let imageData = [];
         let isUpdatingFromViewer = false;
@@ -124,8 +124,6 @@
                     url.searchParams.set('access_token', TOKEN);
                     url.searchParams.set('fields', 'id,geometry,compass_angle,sequence,captured_at');
                     url.searchParams.set('creator_username', USERNAME);
-                    url.searchParams.set('start_captured_at', START_DATE);
-                    url.searchParams.set('end_captured_at', END_DATE);
                     url.searchParams.set('limit', 2000);
                     if (after) {
                         url.searchParams.set('after', after);
@@ -145,15 +143,16 @@
                     
                     if (images.length === 0) break;
                     
-                    // Filter by date (double-check since API filtering might not be perfect)
+                    // Filter by date in JavaScript
                     const filtered = images.filter(img => {
                         if (!img.captured_at) return false;
                         const capturedTime = Date.parse(img.captured_at);
                         return capturedTime >= startTime && capturedTime < endTime;
                     });
                     
+                    console.log(`  Filtered to ${filtered.length} images in date range`);
                     allImages = allImages.concat(filtered);
-                    status(`Loaded ${allImages.length} images...`);
+                    status(`Loaded ${allImages.length} images in date range...`);
                     
                     // Check if there's more data
                     if (data.paging && data.paging.cursors && data.paging.cursors.after) {
@@ -162,9 +161,15 @@
                         console.log('No more pages available');
                         break;
                     }
+                    
+                    // Safety limit to prevent infinite loops
+                    if (requestCount >= 50) {
+                        console.log('Reached maximum request limit');
+                        break;
+                    }
                 }
                 
-                console.log(`Total images fetched: ${allImages.length} in ${requestCount} requests`);
+                console.log(`Total images in date range: ${allImages.length} from ${requestCount} requests`);
                 imageData = allImages;
                 
                 if (imageData.length === 0) {
@@ -172,7 +177,7 @@
                     return;
                 }
                 
-                status(`Loaded ${imageData.length} images (Oct 1-15)`);
+                status(`Loaded ${imageData.length} images (Oct 1-15, 2024)`);
                 addImagesToMap();
                 
                 // Fit map to show all points
