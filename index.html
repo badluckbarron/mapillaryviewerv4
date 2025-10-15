@@ -62,16 +62,13 @@
         const TOKEN = 'MLY|24840280672250420|6fc0e204403850a11ccc043866f1b01d';
         const START_ID = '744575191439794';
         const USERNAME = 'HKocen';
-        const MAX_POINTS = 50;
+        const MAX_POINTS = 2000;
         
         let imageData = [];
         let isUpdatingFromViewer = false;
         let isUpdatingFromMap = false;
         let updateTimeout = null;
         let isFetching = false;
-        let lastFetchCenter = null;
-        let lastFetchZoom = null;
-        let centerMarker = null;
         
         const status = (text) => {
             document.getElementById('status').textContent = text;
@@ -111,190 +108,88 @@
             zoom: 17
         });
 
-        // Fetch user images from Graph API - closest to center
+        // Fetch user images from Graph API within current map bounds
         async function fetchUserImages() {
             if (isFetching) return;
-            
-            const currentCenter = map.getCenter();
-            const currentZoom = map.getZoom();
-            
-            // Check if we need to update (zoom changed or panned significantly)
-            if (lastFetchCenter && lastFetchZoom !== null) {
-                const zoomChanged = Math.abs(currentZoom - lastFetchZoom) >= 0.5;
-                const distance = getDistance(
-                    lastFetchCenter.lat, lastFetchCenter.lng,
-                    currentCenter.lat, currentCenter.lng
-                );
-                // Only update if zoomed or moved more than 50 meters
-                if (!zoomChanged && distance < 50) {
-                    console.log('Skipping fetch - zoom diff:', Math.abs(currentZoom - lastFetchZoom), 'distance:', distance.toFixed(1) + 'm');
-                    return;
-                }
-                console.log('Refetching - zoom diff:', Math.abs(currentZoom - lastFetchZoom), 'distance:', distance.toFixed(1) + 'm');
-            }
-            
             isFetching = true;
-            lastFetchCenter = currentCenter;
-            lastFetchZoom = currentZoom;
             
             try {
-                status('Fetching closest images...');
+                const bounds = map.getBounds();
+                const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
                 
-                // Create a bounding box based on zoom level
-                const radiusMeters = getRadiusForZoom(currentZoom);
-                const bounds = getBoundsFromCenter(currentCenter.lat, currentCenter.lng, radiusMeters);
-                const bbox = `${bounds.west},${bounds.south},${bounds.east},${bounds.north}`;
+                status('Fetching images in view...');
                 
-                console.log(`Map center: [${currentCenter.lat.toFixed(6)}, ${currentCenter.lng.toFixed(6)}]`);
-                console.log(`Searching bbox with ~${radiusMeters}m radius from center`);
+                let allImages = [];
+                let after = null;
+                let requestCount = 0;
+                const maxRequests = 3;
                 
-                // Add or update center marker for debugging
-                if (centerMarker) {
-                    centerMarker.setLngLat([currentCenter.lng, currentCenter.lat]);
-                } else {
-                    const centerEl = document.createElement('div');
-                    centerEl.style.cssText = 'width:16px;height:16px;background:#FF00FF;border:3px solid white;border-radius:50%;';
-                    centerMarker = new maplibregl.Marker({ element: centerEl })
-                        .setLngLat([currentCenter.lng, currentCenter.lat])
-                        .addTo(map);
-                }
-                
-                const url = new URL('https://graph.mapillary.com/images');
-                url.searchParams.set('access_token', TOKEN);
-                url.searchParams.set('fields', 'id,geometry,compass_angle,sequence,captured_at');
-                url.searchParams.set('creator_username', USERNAME);
-                url.searchParams.set('bbox', bbox);
-                url.searchParams.set('limit', 2000); // Fetch more to ensure we get some
-                
-                const response = await fetch(url);
-                if (!response.ok) {
-                    console.error(`HTTP ${response.status}: ${await response.text()}`);
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                
-                const data = await response.json();
-                let allImages = data.data || [];
-                
-                console.log(`API returned ${allImages.length} images`);
-                
-                // If no images found, try expanding the search
-                if (allImages.length === 0) {
-                    console.log('No images found, trying larger area...');
-                    const largerRadius = radiusMeters * 3;
-                    const largerBounds = getBoundsFromCenter(currentCenter.lat, currentCenter.lng, largerRadius);
-                    const largerBbox = `${largerBounds.west},${largerBounds.south},${largerBounds.east},${largerBounds.north}`;
+                // Fetch multiple pages if needed
+                while (allImages.length < MAX_POINTS && requestCount < maxRequests) {
+                    const url = new URL('https://graph.mapillary.com/images');
+                    url.searchParams.set('access_token', TOKEN);
+                    url.searchParams.set('fields', 'id,geometry,compass_angle,sequence,captured_at');
+                    url.searchParams.set('creator_username', USERNAME);
+                    url.searchParams.set('bbox', bbox);
+                    url.searchParams.set('limit', 1000);
+                    if (after) {
+                        url.searchParams.set('after', after);
+                    }
                     
-                    const url2 = new URL('https://graph.mapillary.com/images');
-                    url2.searchParams.set('access_token', TOKEN);
-                    url2.searchParams.set('fields', 'id,geometry,compass_angle,sequence,captured_at');
-                    url2.searchParams.set('creator_username', USERNAME);
-                    url2.searchParams.set('bbox', largerBbox);
-                    url2.searchParams.set('limit', 2000);
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        console.error(`HTTP ${response.status}: ${await response.text()}`);
+                        throw new Error(`HTTP ${response.status}`);
+                    }
                     
-                    const response2 = await fetch(url2);
-                    if (response2.ok) {
-                        const data2 = await response2.json();
-                        allImages = data2.data || [];
-                        console.log(`Larger search returned ${allImages.length} images`);
+                    const data = await response.json();
+                    const images = data.data || [];
+                    
+                    console.log(`Request ${requestCount + 1}: got ${images.length} images`);
+                    
+                    if (images.length === 0) break;
+                    
+                    allImages = allImages.concat(images);
+                    requestCount++;
+                    
+                    // Check if there's more data
+                    if (data.paging && data.paging.cursors && data.paging.cursors.after) {
+                        after = data.paging.cursors.after;
+                        status(`Loaded ${allImages.length} images, fetching more...`);
+                    } else {
+                        console.log('No more pages available');
+                        break;
+                    }
+                    
+                    // Stop if we hit max
+                    if (allImages.length >= MAX_POINTS) {
+                        allImages = allImages.slice(0, MAX_POINTS);
+                        break;
                     }
                 }
                 
-                if (allImages.length === 0) {
-                    status('No images nearby - try zooming out');
-                    imageData = [];
+                console.log(`Total images fetched: ${allImages.length} in ${requestCount} requests`);
+                imageData = allImages;
+                
+                if (imageData.length === 0) {
+                    status('No images in this area');
                     if (map.getSource('images')) {
                         map.getSource('images').setData({ type: 'FeatureCollection', features: [] });
                     }
                     if (map.getSource('sequences')) {
                         map.getSource('sequences').setData({ type: 'FeatureCollection', features: [] });
                     }
-                    isFetching = false;
                     return;
                 }
                 
-                // Calculate distance for each image and sort by distance
-                allImages.forEach(img => {
-                    if (img.geometry && img.geometry.coordinates) {
-                        const [lng, lat] = img.geometry.coordinates;
-                        img.distance = getDistance(currentCenter.lat, currentCenter.lng, lat, lng);
-                    } else {
-                        img.distance = Infinity;
-                    }
-                });
-                
-                // Sort by distance and take closest MAX_POINTS
-                allImages.sort((a, b) => a.distance - b.distance);
-                imageData = allImages.slice(0, MAX_POINTS);
-                
-                const maxDist = imageData.length > 0 ? imageData[imageData.length-1]?.distance?.toFixed(1) : 0;
-                const minDist = imageData.length > 0 ? imageData[0]?.distance?.toFixed(1) : 0;
-                console.log(`Showing ${imageData.length} closest images (range: ${minDist}m - ${maxDist}m from center)`);
-                
-                status(`Loaded ${imageData.length} closest images`);
+                const limitMsg = imageData.length >= MAX_POINTS ? ` (capped at ${MAX_POINTS})` : '';
+                status(`Loaded ${imageData.length} images${limitMsg}`);
                 addImagesToMap();
-                
-                // Center map on the actual closest point if significantly off
-                if (imageData.length > 0 && imageData[0].distance > 100) {
-                    const closest = imageData[0];
-                    if (closest.geometry && closest.geometry.coordinates) {
-                        const [lng, lat] = closest.geometry.coordinates;
-                        map.panTo([lng, lat]);
-                    }
-                }
             } catch (err) {
                 status('Error loading images: ' + err.message);
                 console.error('Error fetching images:', err);
             } finally {
                 isFetching = false;
-            }
-        }
-        
-        // Get bounding box from center point and radius
-        function getBoundsFromCenter(lat, lng, radiusMeters) {
-            const latDelta = (radiusMeters / 111320); // 1 degree lat ≈ 111.32 km
-            const lngDelta = (radiusMeters / (111320 * Math.cos(lat * Math.PI / 180)));
-            
-            return {
-                north: lat + latDelta,
-                south: lat - latDelta,
-                east: lng + lngDelta,
-                west: lng - lngDelta
-            };
-        }
-        
-        // Calculate distance between two points in meters
-        function getDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371e3; // Earth radius in meters
-            const φ1 = lat1 * Math.PI / 180;
-            const φ2 = lat2 * Math.PI / 180;
-            const Δφ = (lat2 - lat1) * Math.PI / 180;
-            const Δλ = (lon2 - lon1) * Math.PI / 180;
-            
-            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                    Math.cos(φ1) * Math.cos(φ2) *
-                    Math.sin(Δλ/2) * Math.sin(Δλ/2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            
-            return R * c;
-        }
-        
-        // Get appropriate search radius based on zoom level
-        function getRadiusForZoom(zoom) {
-            if (zoom >= 18) return 500;
-            if (zoom >= 17) return 1000;
-            if (zoom >= 16) return 2000;
-            if (zoom >= 15) return 4000;
-            if (zoom >= 14) return 8000;
-            return 15000;
-        }
-
-        // Update map points
-        function updateMapPoints(features) {
-            if (map.getSource('images')) {
-                map.getSource('images').setData({
-                    type: 'FeatureCollection',
-                    features: features
-                });
             }
         }
 
@@ -338,9 +233,8 @@
             // Create line features from sequences
             const lineFeatures = [];
             for (const [seqId, points] of Object.entries(sequenceGroups)) {
-                if (points.length < 2) continue; // Skip single-point sequences
+                if (points.length < 2) continue;
                 
-                // Sort by capture time if available
                 if (points[0].captured_at) {
                     points.sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at));
                 }
@@ -371,6 +265,16 @@
                 map.getSource('sequences').setData({
                     type: 'FeatureCollection',
                     features: lineFeatures
+                });
+            }
+        }
+
+        // Update map points
+        function updateMapPoints(features) {
+            if (map.getSource('images')) {
+                map.getSource('images').setData({
+                    type: 'FeatureCollection',
+                    features: features
                 });
             }
         }
