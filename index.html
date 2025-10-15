@@ -71,6 +71,7 @@
         let isFetching = false;
         let lastFetchCenter = null;
         let lastFetchZoom = null;
+        let centerMarker = null;
         
         const status = (text) => {
             document.getElementById('status').textContent = text;
@@ -144,7 +145,19 @@
                 const bounds = getBoundsFromCenter(currentCenter.lat, currentCenter.lng, radiusMeters);
                 const bbox = `${bounds.west},${bounds.south},${bounds.east},${bounds.north}`;
                 
+                console.log(`Map center: [${currentCenter.lat.toFixed(6)}, ${currentCenter.lng.toFixed(6)}]`);
                 console.log(`Searching bbox with ~${radiusMeters}m radius from center`);
+                
+                // Add or update center marker for debugging
+                if (centerMarker) {
+                    centerMarker.setLngLat([currentCenter.lng, currentCenter.lat]);
+                } else {
+                    const centerEl = document.createElement('div');
+                    centerEl.style.cssText = 'width:16px;height:16px;background:#FF00FF;border:3px solid white;border-radius:50%;';
+                    centerMarker = new maplibregl.Marker({ element: centerEl })
+                        .setLngLat([currentCenter.lng, currentCenter.lat])
+                        .addTo(map);
+                }
                 
                 const url = new URL('https://graph.mapillary.com/images');
                 url.searchParams.set('access_token', TOKEN);
