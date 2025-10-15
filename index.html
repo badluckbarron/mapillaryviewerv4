@@ -60,15 +60,14 @@
 
     <script>
         const TOKEN = 'MLY|24840280672250420|6fc0e204403850a11ccc043866f1b01d';
-        const START_ID = '744575191439794';
-        const USERNAME = 'HKocen';
-        const MAX_POINTS = 2000;
+        const START_ID = '1347465910083369';
+        const USERNAME = 'vukmercd23';
+        const START_DATE = '2024-10-01T00:00:00Z';
+        const END_DATE = '2024-10-16T00:00:00Z'; // Exclusive, so 10/15 23:59:59 is included
         
         let imageData = [];
         let isUpdatingFromViewer = false;
         let isUpdatingFromMap = false;
-        let updateTimeout = null;
-        let isFetching = false;
         
         const status = (text) => {
             document.getElementById('status').textContent = text;
@@ -104,34 +103,30 @@
                     { id: 'osm', type: 'raster', source: 'osm' }
                 ]
             },
-            center: [-91.965153, 30.138307],
-            zoom: 17
+            center: [0, 0],
+            zoom: 2
         });
 
-        // Fetch user images from Graph API within current map bounds
-        async function fetchUserImages() {
-            if (isFetching) return;
-            isFetching = true;
-            
+        // Fetch ALL user images with date filter
+        async function fetchAllUserImages() {
             try {
-                const bounds = map.getBounds();
-                const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
-                
-                status('Fetching images in view...');
+                status('Loading all images...');
                 
                 let allImages = [];
                 let after = null;
                 let requestCount = 0;
-                const maxRequests = 3;
+                const startTime = Date.parse(START_DATE);
+                const endTime = Date.parse(END_DATE);
                 
-                // Fetch multiple pages if needed
-                while (allImages.length < MAX_POINTS && requestCount < maxRequests) {
+                // Fetch all pages
+                while (true) {
                     const url = new URL('https://graph.mapillary.com/images');
                     url.searchParams.set('access_token', TOKEN);
                     url.searchParams.set('fields', 'id,geometry,compass_angle,sequence,captured_at');
                     url.searchParams.set('creator_username', USERNAME);
-                    url.searchParams.set('bbox', bbox);
-                    url.searchParams.set('limit', 1000);
+                    url.searchParams.set('start_captured_at', START_DATE);
+                    url.searchParams.set('end_captured_at', END_DATE);
+                    url.searchParams.set('limit', 2000);
                     if (after) {
                         url.searchParams.set('after', after);
                     }
@@ -145,25 +140,26 @@
                     const data = await response.json();
                     const images = data.data || [];
                     
-                    console.log(`Request ${requestCount + 1}: got ${images.length} images`);
+                    requestCount++;
+                    console.log(`Request ${requestCount}: got ${images.length} images`);
                     
                     if (images.length === 0) break;
                     
-                    allImages = allImages.concat(images);
-                    requestCount++;
+                    // Filter by date (double-check since API filtering might not be perfect)
+                    const filtered = images.filter(img => {
+                        if (!img.captured_at) return false;
+                        const capturedTime = Date.parse(img.captured_at);
+                        return capturedTime >= startTime && capturedTime < endTime;
+                    });
+                    
+                    allImages = allImages.concat(filtered);
+                    status(`Loaded ${allImages.length} images...`);
                     
                     // Check if there's more data
                     if (data.paging && data.paging.cursors && data.paging.cursors.after) {
                         after = data.paging.cursors.after;
-                        status(`Loaded ${allImages.length} images, fetching more...`);
                     } else {
                         console.log('No more pages available');
-                        break;
-                    }
-                    
-                    // Stop if we hit max
-                    if (allImages.length >= MAX_POINTS) {
-                        allImages = allImages.slice(0, MAX_POINTS);
                         break;
                     }
                 }
@@ -172,24 +168,30 @@
                 imageData = allImages;
                 
                 if (imageData.length === 0) {
-                    status('No images in this area');
-                    if (map.getSource('images')) {
-                        map.getSource('images').setData({ type: 'FeatureCollection', features: [] });
-                    }
-                    if (map.getSource('sequences')) {
-                        map.getSource('sequences').setData({ type: 'FeatureCollection', features: [] });
-                    }
+                    status('No images found for date range');
                     return;
                 }
                 
-                const limitMsg = imageData.length >= MAX_POINTS ? ` (capped at ${MAX_POINTS})` : '';
-                status(`Loaded ${imageData.length} images${limitMsg}`);
+                status(`Loaded ${imageData.length} images (Oct 1-15)`);
                 addImagesToMap();
+                
+                // Fit map to show all points
+                if (imageData.length > 0) {
+                    const coords = imageData
+                        .filter(img => img.geometry && img.geometry.coordinates)
+                        .map(img => img.geometry.coordinates);
+                    
+                    if (coords.length > 0) {
+                        const bounds = coords.reduce((bounds, coord) => {
+                            return bounds.extend(coord);
+                        }, new maplibregl.LngLatBounds(coords[0], coords[0]));
+                        
+                        map.fitBounds(bounds, { padding: 50 });
+                    }
+                }
             } catch (err) {
                 status('Error loading images: ' + err.message);
                 console.error('Error fetching images:', err);
-            } finally {
-                isFetching = false;
             }
         }
 
@@ -267,24 +269,6 @@
                     features: lineFeatures
                 });
             }
-        }
-
-        // Update map points
-        function updateMapPoints(features) {
-            if (map.getSource('images')) {
-                map.getSource('images').setData({
-                    type: 'FeatureCollection',
-                    features: features
-                });
-            }
-        }
-
-        // Schedule map update on pan/zoom
-        function scheduleMapUpdate() {
-            clearTimeout(updateTimeout);
-            updateTimeout = setTimeout(() => {
-                fetchUserImages();
-            }, 500);
         }
 
         // FOV indicator
@@ -511,13 +495,9 @@
                 map.getCanvas().style.cursor = '';
             });
 
-            // Now fetch images
-            fetchUserImages();
+            // Load all images once at startup
+            fetchAllUserImages();
         });
-
-        // Update points when map moves
-        map.on('moveend', scheduleMapUpdate);
-        map.on('zoomend', scheduleMapUpdate);
     </script>
 </body>
 </html>
