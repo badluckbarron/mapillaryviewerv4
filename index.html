@@ -333,133 +333,22 @@
                 });
             }
 
-            // Check if source exists, update if it does, create if it doesn't
+            console.log(`Adding ${features.length} points and ${lineFeatures.length} lines to map`);
+
+            // Update the sources
             if (map.getSource('images')) {
                 map.getSource('images').setData({
                     type: 'FeatureCollection',
                     features: features
                 });
-                
-                if (map.getSource('sequences')) {
-                    map.getSource('sequences').setData({
-                        type: 'FeatureCollection',
-                        features: lineFeatures
-                    });
-                }
-                return;
             }
-
-            // First time - create the sequences source and layer
-            map.addSource('sequences', {
-                type: 'geojson',
-                data: {
+            
+            if (map.getSource('sequences')) {
+                map.getSource('sequences').setData({
                     type: 'FeatureCollection',
                     features: lineFeatures
-                }
-            });
-
-            map.addLayer({
-                id: 'sequence-lines',
-                type: 'line',
-                source: 'sequences',
-                paint: {
-                    'line-color': '#4285F4',
-                    'line-width': 2,
-                    'line-opacity': 0.6
-                }
-            });
-
-            // Create images source and layers
-            map.addSource('images', {
-                type: 'geojson',
-                data: {
-                    type: 'FeatureCollection',
-                    features: features
-                }
-            });
-
-            // Add image points layer (above lines)
-            map.addLayer({
-                id: 'image-points',
-                type: 'circle',
-                source: 'images',
-                paint: {
-                    'circle-color': '#4285F4',
-                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 3, 18, 8],
-                    'circle-stroke-width': 2,
-                    'circle-stroke-color': '#fff',
-                    'circle-opacity': 0.8
-                }
-            });
-
-            // Current image highlight
-            map.addSource('currentImage', {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: [] }
-            });
-            
-            map.addLayer({
-                id: 'current-image',
-                type: 'circle',
-                source: 'currentImage',
-                paint: {
-                    'circle-color': '#EA4335',
-                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 5, 18, 12],
-                    'circle-stroke-width': 3,
-                    'circle-stroke-color': '#fff'
-                }
-            });
-
-            // Click handler
-            map.on('click', 'image-points', async (e) => {
-                if (isUpdatingFromViewer) return;
-                
-                const feature = e.features[0];
-                const imageId = feature.properties.id;
-                const coords = feature.geometry.coordinates;
-                
-                if (imageId) {
-                    isUpdatingFromMap = true;
-                    
-                    // Update highlighted point immediately
-                    if (map.getSource('currentImage')) {
-                        map.getSource('currentImage').setData({
-                            type: 'FeatureCollection',
-                            features: [{
-                                type: 'Feature',
-                                geometry: {
-                                    type: 'Point',
-                                    coordinates: coords
-                                }
-                            }]
-                        });
-                    }
-                    
-                    // Update position markers immediately
-                    positionMarker.setLngLat(coords).addTo(map);
-                    cameraMarker.setLngLat(coords).addTo(map);
-                    
-                    // Center map on selected point
-                    map.panTo(coords);
-                    
-                    try {
-                        await viewer.moveTo(String(imageId));
-                        // Force a position sync after the image loads
-                        setTimeout(syncPosition, 100);
-                    } catch (err) {
-                        console.error('Error moving to image:', err);
-                    }
-                    setTimeout(() => { isUpdatingFromMap = false; }, 300);
-                }
-            });
-
-            map.on('mouseenter', 'image-points', () => {
-                map.getCanvas().style.cursor = 'pointer';
-            });
-
-            map.on('mouseleave', 'image-points', () => {
-                map.getCanvas().style.cursor = '';
-            });
+                });
+            }
         }
 
         // Schedule map update on pan/zoom
@@ -591,6 +480,110 @@
 
         // Initialize when map loads
         map.on('load', () => {
+            // Create empty sources first
+            map.addSource('sequences', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] }
+            });
+
+            map.addLayer({
+                id: 'sequence-lines',
+                type: 'line',
+                source: 'sequences',
+                paint: {
+                    'line-color': '#4285F4',
+                    'line-width': 2,
+                    'line-opacity': 0.6
+                }
+            });
+
+            map.addSource('images', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] }
+            });
+
+            map.addLayer({
+                id: 'image-points',
+                type: 'circle',
+                source: 'images',
+                paint: {
+                    'circle-color': '#4285F4',
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 3, 18, 8],
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': '#fff',
+                    'circle-opacity': 0.8
+                }
+            });
+
+            map.addSource('currentImage', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] }
+            });
+            
+            map.addLayer({
+                id: 'current-image',
+                type: 'circle',
+                source: 'currentImage',
+                paint: {
+                    'circle-color': '#EA4335',
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 5, 18, 12],
+                    'circle-stroke-width': 3,
+                    'circle-stroke-color': '#fff'
+                }
+            });
+
+            // Click handler
+            map.on('click', 'image-points', async (e) => {
+                if (isUpdatingFromViewer) return;
+                
+                const feature = e.features[0];
+                const imageId = feature.properties.id;
+                const coords = feature.geometry.coordinates;
+                
+                if (imageId) {
+                    isUpdatingFromMap = true;
+                    
+                    // Update highlighted point immediately
+                    if (map.getSource('currentImage')) {
+                        map.getSource('currentImage').setData({
+                            type: 'FeatureCollection',
+                            features: [{
+                                type: 'Feature',
+                                geometry: {
+                                    type: 'Point',
+                                    coordinates: coords
+                                }
+                            }]
+                        });
+                    }
+                    
+                    // Update position markers immediately
+                    positionMarker.setLngLat(coords).addTo(map);
+                    cameraMarker.setLngLat(coords).addTo(map);
+                    
+                    // Center map on selected point
+                    map.panTo(coords);
+                    
+                    try {
+                        await viewer.moveTo(String(imageId));
+                        // Force a position sync after the image loads
+                        setTimeout(syncPosition, 100);
+                    } catch (err) {
+                        console.error('Error moving to image:', err);
+                    }
+                    setTimeout(() => { isUpdatingFromMap = false; }, 300);
+                }
+            });
+
+            map.on('mouseenter', 'image-points', () => {
+                map.getCanvas().style.cursor = 'pointer';
+            });
+
+            map.on('mouseleave', 'image-points', () => {
+                map.getCanvas().style.cursor = '';
+            });
+
+            // Now fetch images
             fetchUserImages();
         });
 
