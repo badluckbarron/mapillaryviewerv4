@@ -62,14 +62,15 @@
         const TOKEN = 'MLY|24840280672250420|6fc0e204403850a11ccc043866f1b01d';
         const START_ID = '744575191439794';
         const USERNAME = 'HKocen';
-        const MAX_POINTS = 2000;
-        const PER_REQUEST = 1000;
+        const MAX_POINTS = 50;
         
         let imageData = [];
         let isUpdatingFromViewer = false;
         let isUpdatingFromMap = false;
         let updateTimeout = null;
         let isFetching = false;
+        let lastFetchCenter = null;
+        let lastFetchZoom = null;
         
         const status = (text) => {
             document.getElementById('status').textContent = text;
@@ -109,79 +110,65 @@
             zoom: 17
         });
 
-        // Fetch user images from Graph API within current map bounds
+        // Fetch user images from Graph API - closest to center
         async function fetchUserImages() {
             if (isFetching) return;
+            
+            const currentCenter = map.getCenter();
+            const currentZoom = map.getZoom();
+            
+            // Check if we need to update (zoom changed or panned significantly)
+            if (lastFetchCenter && lastFetchZoom !== null) {
+                const zoomChanged = Math.abs(currentZoom - lastFetchZoom) >= 1;
+                const distance = getDistance(
+                    lastFetchCenter.lat, lastFetchCenter.lng,
+                    currentCenter.lat, currentCenter.lng
+                );
+                // Only update if zoomed or moved more than 100 meters
+                if (!zoomChanged && distance < 100) {
+                    return;
+                }
+            }
+            
             isFetching = true;
+            lastFetchCenter = currentCenter;
+            lastFetchZoom = currentZoom;
             
             try {
-                const bounds = map.getBounds();
-                const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
+                status('Fetching closest images...');
                 
-                status('Fetching images in view...');
+                // Use a reasonable search radius based on zoom level
+                const radiusMeters = getRadiusForZoom(currentZoom);
                 
-                let allImages = [];
-                let after = null;
-                let requestCount = 0;
-                const maxRequests = 3; // Limit number of pagination requests for speed
+                const url = new URL('https://graph.mapillary.com/images');
+                url.searchParams.set('access_token', TOKEN);
+                url.searchParams.set('fields', 'id,geometry,compass_angle,sequence,captured_at');
+                url.searchParams.set('creator_username', USERNAME);
+                url.searchParams.set('radius', radiusMeters);
+                url.searchParams.set('longitude', currentCenter.lng);
+                url.searchParams.set('latitude', currentCenter.lat);
+                url.searchParams.set('limit', MAX_POINTS);
                 
-                // Fetch multiple pages if needed
-                while (allImages.length < MAX_POINTS && requestCount < maxRequests) {
-                    const url = new URL('https://graph.mapillary.com/images');
-                    url.searchParams.set('access_token', TOKEN);
-                    url.searchParams.set('fields', 'id,geometry,compass_angle,sequence,captured_at');
-                    url.searchParams.set('creator_username', USERNAME);
-                    url.searchParams.set('bbox', bbox);
-                    url.searchParams.set('limit', PER_REQUEST);
-                    if (after) {
-                        url.searchParams.set('after', after);
-                    }
-                    
-                    const response = await fetch(url);
-                    if (!response.ok) {
-                        console.error(`HTTP ${response.status}: ${await response.text()}`);
-                        throw new Error(`HTTP ${response.status}`);
-                    }
-                    
-                    const data = await response.json();
-                    const images = data.data || [];
-                    
-                    console.log(`Request ${requestCount + 1}: got ${images.length} images`);
-                    
-                    if (images.length === 0) break;
-                    
-                    allImages = allImages.concat(images);
-                    requestCount++;
-                    
-                    // Check if there's more data
-                    if (data.paging && data.paging.cursors && data.paging.cursors.after) {
-                        after = data.paging.cursors.after;
-                        status(`Loaded ${allImages.length} images, fetching more...`);
-                    } else {
-                        console.log('No more pages available');
-                        break;
-                    }
-                    
-                    // Stop if we hit max
-                    if (allImages.length >= MAX_POINTS) {
-                        allImages = allImages.slice(0, MAX_POINTS);
-                        break;
-                    }
+                const response = await fetch(url);
+                if (!response.ok) {
+                    console.error(`HTTP ${response.status}: ${await response.text()}`);
+                    throw new Error(`HTTP ${response.status}`);
                 }
                 
-                console.log(`Total images fetched: ${allImages.length} in ${requestCount} requests`);
-                imageData = allImages;
+                const data = await response.json();
+                imageData = data.data || [];
+                
+                console.log(`Fetched ${imageData.length} images within ${radiusMeters}m of center`);
                 
                 if (imageData.length === 0) {
-                    status('No images in this area');
+                    status('No images nearby');
                     if (map.getSource('images')) {
                         updateMapPoints([]);
                     }
                     return;
                 }
                 
-                const limitMsg = imageData.length >= MAX_POINTS ? ` (capped at ${MAX_POINTS})` : '';
-                status(`Loaded ${imageData.length} images${limitMsg}`);
+                status(`Loaded ${imageData.length} closest images`);
                 addImagesToMap();
             } catch (err) {
                 status('Error loading images: ' + err.message);
@@ -189,6 +176,32 @@
             } finally {
                 isFetching = false;
             }
+        }
+        
+        // Calculate distance between two points in meters
+        function getDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3; // Earth radius in meters
+            const φ1 = lat1 * Math.PI / 180;
+            const φ2 = lat2 * Math.PI / 180;
+            const Δφ = (lat2 - lat1) * Math.PI / 180;
+            const Δλ = (lon2 - lon1) * Math.PI / 180;
+            
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                    Math.cos(φ1) * Math.cos(φ2) *
+                    Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            
+            return R * c;
+        }
+        
+        // Get appropriate search radius based on zoom level
+        function getRadiusForZoom(zoom) {
+            if (zoom >= 18) return 100;
+            if (zoom >= 17) return 200;
+            if (zoom >= 16) return 500;
+            if (zoom >= 15) return 1000;
+            if (zoom >= 14) return 2000;
+            return 5000;
         }
 
         // Update map points
@@ -394,7 +407,7 @@
             clearTimeout(updateTimeout);
             updateTimeout = setTimeout(() => {
                 fetchUserImages();
-            }, 800);
+            }, 500);
         }
 
         // FOV indicator
