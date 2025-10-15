@@ -201,6 +201,13 @@
                         console.log('Reached maximum request limit');
                         break;
                     }
+                    
+                    // Stop if we've collected enough images
+                    if (allImages.length >= 20000) {
+                        console.log('Reached maximum of 20,000 images');
+                        allImages = allImages.slice(0, 20000);
+                        break;
+                    }
                 }
                 
                 console.log(`Total images in date range: ${allImages.length} from ${requestCount} requests`);
