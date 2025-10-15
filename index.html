@@ -133,6 +133,32 @@
         #mapillary-btn:hover {
             background: #2D9348;
         }
+        #mapillary-direct-btn {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: #E0E0E0;
+            color: #000;
+            font-weight: bold;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 13px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.2s;
+        }
+        #mapillary-direct-btn:hover {
+            background: #D0D0D0;
+        }
+        #mapillary-direct-btn img {
+            width: 20px;
+            height: 20px;
+        }
     </style>
 </head>
 <body>
@@ -146,6 +172,10 @@
                 </div>
                 <div id="progress-text">Request 0 of ?</div>
             </div>
+            <button id="mapillary-direct-btn">
+                <img src="https://play-lh.googleusercontent.com/z3qzEc13E2sDWky9LgqADojcdy8hrX_szuAAeX21k_dFe7GNXLIYXJtOu5RcE3_5Jz8" alt="Mapillary">
+                Open Mapillary directly
+            </button>
         </div>
         <div id="map"></div>
     </div>
@@ -155,7 +185,6 @@
         <p id="error-message">Mapillary API issue occurred. Would you like to try reloading?</p>
         <div>
             <button id="reload-btn">Reload</button>
-            <button id="mapillary-btn">No - Open Mapillary data directly</button>
         </div>
     </div>
 
@@ -208,7 +237,8 @@
             location.reload();
         });
         
-        document.getElementById('mapillary-btn').addEventListener('click', () => {
+        // Mapillary direct button (always visible)
+        document.getElementById('mapillary-direct-btn').addEventListener('click', () => {
             window.open('https://www.mapillary.com/app/user/vukmercd23?lat=30.138492112426093&lng=-91.95221806850299&z=12.85546044226375&dateFrom=2025-10-01&username%5B%5D=vukmercd23&dateTo=2025-10-15&pKey=1347465910083369', '_blank');
         });
 
