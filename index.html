@@ -48,12 +48,53 @@
             font-size: 13px;
             max-width: 300px;
         }
+        #progress-container {
+            position: absolute;
+            top: 50px;
+            left: 10px;
+            width: 280px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 12px 16px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            z-index: 1000;
+            display: none;
+        }
+        #progress-container.visible {
+            display: block;
+        }
+        #progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        #progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4285F4, #34A853);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        #progress-text {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+        }
     </style>
 </head>
 <body>
     <div id="container">
         <div id="viewer">
             <div id="status">Loading images...</div>
+            <div id="progress-container">
+                <div>Loading images from API...</div>
+                <div id="progress-bar">
+                    <div id="progress-fill"></div>
+                </div>
+                <div id="progress-text">Request 0 of ?</div>
+            </div>
         </div>
         <div id="map"></div>
     </div>
@@ -71,6 +112,22 @@
         
         const status = (text) => {
             document.getElementById('status').textContent = text;
+        };
+        
+        const showProgress = (show) => {
+            const container = document.getElementById('progress-container');
+            if (show) {
+                container.classList.add('visible');
+            } else {
+                container.classList.remove('visible');
+            }
+        };
+        
+        const updateProgress = (current, total, filtered) => {
+            const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+            document.getElementById('progress-fill').style.width = percent + '%';
+            document.getElementById('progress-text').textContent = 
+                `Request ${current} of ~${total} | ${filtered} images match filter`;
         };
 
         // Initialize Mapillary Viewer
@@ -111,12 +168,15 @@
         async function fetchAllUserImages() {
             try {
                 status('Loading all images...');
+                showProgress(true);
                 
                 let allImages = [];
                 let after = null;
                 let requestCount = 0;
+                let totalFetched = 0;
                 const startTime = Date.parse(START_DATE);
                 const endTime = Date.parse(END_DATE);
+                const estimatedTotal = 30; // Rough estimate for progress bar
                 
                 // Fetch all pages
                 while (true) {
@@ -139,7 +199,8 @@
                     const images = data.data || [];
                     
                     requestCount++;
-                    console.log(`Request ${requestCount}: got ${images.length} images`);
+                    totalFetched += images.length;
+                    console.log(`Request ${requestCount}: got ${images.length} images (total fetched: ${totalFetched})`);
                     
                     if (images.length === 0) break;
                     
@@ -186,7 +247,8 @@
                     }
                     
                     allImages = allImages.concat(filtered);
-                    status(`Loaded ${allImages.length} images in date range...`);
+                    updateProgress(requestCount, estimatedTotal, allImages.length);
+                    status(`Loading: ${allImages.length} images match filter...`);
                     
                     // Check if there's more data
                     if (data.paging && data.paging.cursors && data.paging.cursors.after) {
@@ -204,13 +266,19 @@
                     
                     // Stop if we've collected enough images
                     if (allImages.length >= 50000) {
-                        console.log('Reached maximum of 20,000 images');
+                        console.log('Reached maximum load of 50,000 images');
                         allImages = allImages.slice(0, 50000);
                         break;
                     }
                 }
                 
-                console.log(`Total images in date range: ${allImages.length} from ${requestCount} requests`);
+                showProgress(false);
+                console.log(`\n=== FINAL RESULTS ===`);
+                console.log(`Total API requests: ${requestCount}`);
+                console.log(`Total images fetched from API: ${totalFetched}`);
+                console.log(`Total images matching date filter (Oct 1-15, 2025): ${allImages.length}`);
+                console.log(`===================\n`);
+                
                 imageData = allImages;
                 
                 if (imageData.length === 0) {
